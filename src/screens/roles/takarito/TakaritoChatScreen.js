@@ -1,0 +1,263 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { supabase } from "../../../lib/supabaseClient.js";
+
+export default function TakaritoChatScreen() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+
+  const flatListRef = useRef(null);
+
+  const [takaritoId, setTakaritoId] = useState(null);
+  const [adminId, setAdminId] = useState(null);
+
+  // 🔥 Takarító ID betöltése
+  useEffect(() => {
+    const loadUser = async () => {
+      const user = (await supabase.auth.getUser()).data.user;
+      setTakaritoId(user.id);
+    };
+    loadUser();
+  }, []);
+
+  // 🔥 Admin ID betöltése
+  useEffect(() => {
+    const loadAdmins = async () => {
+      const { data } = await supabase
+        .from("felhasznalok")
+        .select("id")
+        .eq("szerepkor", "admin");
+
+      if (data && data.length > 0) {
+        setAdminId(data[0].id);
+      }
+    };
+
+    loadAdmins();
+  }, []);
+
+  // 🔥 Üzenetek lekérése
+  const fetchMessages = async () => {
+    if (!takaritoId || !adminId) return;
+
+    const { data } = await supabase
+      .from("uzenetek")
+      .select(`
+        id,
+        uzenet,
+        kuldo_id,
+        fogado_id,
+        kuldo_szerep,
+        fogado_szerep,
+        letrehozva
+      `)
+      .or(
+        `and(kuldo_id.eq.${takaritoId},fogado_id.eq.${adminId}),and(kuldo_id.eq.${adminId},fogado_id.eq.${takaritoId})`
+      )
+      .order("letrehozva", { ascending: true });
+
+    setMessages(data || []);
+  };
+
+  // 🔥 Realtime frissítés
+  useEffect(() => {
+    if (!takaritoId || !adminId) return;
+
+    fetchMessages();
+
+    const channel = supabase
+      .channel(`chat-takarito-${takaritoId}-${adminId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "uzenetek" },
+        payload => {
+          const msg = payload.new;
+
+          // ❗ saját üzenet → már hozzáadtuk lokálisan
+          if (msg.kuldo_id === takaritoId) return;
+
+          const isRelevant =
+            (msg.kuldo_id === takaritoId && msg.fogado_id === adminId) ||
+            (msg.kuldo_id === adminId && msg.fogado_id === takaritoId);
+
+          if (isRelevant) {
+            setMessages(prev => {
+              if (prev.some(m => m.id === msg.id)) return prev;
+              return [...prev, msg];
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [takaritoId, adminId]);
+
+  // 🔥 Üzenet küldése
+  const sendMessage = async () => {
+    if (!input.trim()) return;
+
+    const newMessage = {
+      id: Date.now(),
+      uzenet: input.trim(),
+      kuldo_id: takaritoId,
+      fogado_id: adminId,
+      kuldo_szerep: "takarito",
+      fogado_szerep: "admin",
+      letrehozva: new Date().toISOString()
+    };
+
+    setMessages(prev => [...prev, newMessage]);
+
+    await supabase.from("uzenetek").insert({
+      kuldo_id: takaritoId,
+      kuldo_szerep: "takarito",
+      fogado_id: adminId,
+      fogado_szerep: "admin",
+      uzenet: input.trim(),
+      tipus: "manual",
+      prioritas: 5,
+      olvasott: false
+    });
+
+    setInput("");
+
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  };
+
+  // 🔥 Üzenet buborék
+  const renderMessage = ({ item }) => {
+    const isTakarito = item.kuldo_id === takaritoId;
+
+    return (
+      <View
+        style={[
+          styles.messageBubble,
+          isTakarito ? styles.takaritoBubble : styles.adminBubble
+        ]}
+      >
+        <Text style={styles.messageText}>{item.uzenet}</Text>
+        <Text style={styles.timeText}>
+          {new Date(item.letrehozva).toLocaleTimeString("hu-HU", {
+            hour: "2-digit",
+            minute: "2-digit"
+          })}
+        </Text>
+      </View>
+    );
+  };
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <Text style={styles.header}>Adminnal folytatott beszélgetés</Text>
+
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={renderMessage}
+          contentContainerStyle={{ padding: 15 }}
+          onContentSizeChange={() =>
+            flatListRef.current?.scrollToEnd({ animated: true })
+          }
+        />
+
+        <View style={[styles.inputRow, { paddingBottom: 30 }]}>
+          <TextInput
+            style={styles.input}
+            placeholder="Írj üzenetet..."
+            value={input}
+            onChangeText={setInput}
+          />
+          <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
+            <Text style={styles.sendText}>Küldés</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#fff" },
+
+  header: {
+    fontSize: 20,
+    fontWeight: "bold",
+    padding: 15,
+    backgroundColor: "#f2f2f2",
+    textAlign: "center"
+  },
+
+  messageBubble: {
+    maxWidth: "75%",
+    padding: 10,
+    borderRadius: 12,
+    marginVertical: 5
+  },
+
+  takaritoBubble: {
+    backgroundColor: "#007AFF",
+    alignSelf: "flex-end"
+  },
+
+  adminBubble: {
+    backgroundColor: "#e5e5ea",
+    alignSelf: "flex-start"
+  },
+
+  messageText: {
+    color: "#000",
+    fontSize: 16
+  },
+
+  timeText: {
+    fontSize: 10,
+    color: "#333",
+    marginTop: 4,
+    textAlign: "right"
+  },
+
+  inputRow: {
+    flexDirection: "row",
+    padding: 10,
+    borderTopWidth: 1,
+    borderColor: "#ddd"
+  },
+
+  input: {
+    flex: 1,
+    backgroundColor: "#f2f2f2",
+    padding: 10,
+    borderRadius: 10
+  },
+
+  sendButton: {
+    backgroundColor: "#007AFF",
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 10,
+    marginLeft: 10
+  },
+
+  sendText: {
+    color: "#fff",
+    fontWeight: "bold"
+  }
+});
