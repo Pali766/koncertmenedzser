@@ -112,3 +112,65 @@ export default function PultosFooldal({ navigation, route }) {
 }
 
 const styles = StyleSheet.create
+  container: {
+    flex: 1,
+    paddingTop: 60,
+    paddingHorizontal: 20,
+    backgroundColor: "#f2f2f2"
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: "bold",
+    textAlign: "center",
+    marginBottom: 30
+  },
+  subtitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    marginTop: 10,
+    marginBottom: 10
+  },
+  cardContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  card: {
+    width: "48%",
+    backgroundColor: "#fff",
+    paddingVertical: 30,
+    borderRadius: 15,
+    marginBottom: 20,
+    alignItems: "center",
+    elevation: 4
+  },
+  icon: {
+    fontSize: 45,
+    marginBottom: 12
+  },
+  cardText: {
+    fontSize: 17,
+    fontWeight: "600",
+    textAlign: "center"
+  },
+  messageCard: {
+    backgroundColor: "#f2f2f2",
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 15
+  },
+  unread: {
+    backgroundColor: "#d9eaff"
+  },
+  messageHeader: {
+    fontWeight: "bold",
+    marginBottom: 5
+  },
+  messageText: {
+    fontSize: 16
+  },
+  messageTime: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 5
+  }
+});
